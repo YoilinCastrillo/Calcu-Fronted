@@ -17,6 +17,11 @@ import type { Control } from "@/lib/schemas";
 function hasControlId(c: Control): c is Control & { id: number } {
   return typeof (c as any).id === "number";
 }
+import type { Hazard } from "@/lib/schemas";
+
+function hasId(h: Hazard): h is Hazard & { id: number } {
+  return typeof (h as any).id === "number";
+}
 
 interface RiskAssessmentFormProps {
   onSuccess?: () => void
@@ -128,18 +133,19 @@ export function RiskAssessmentForm({ onSuccess }: RiskAssessmentFormProps) {
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Peligro *
                 </label>
-                <Select onValueChange={(value) => setValue('hazardId', parseInt(value))}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecciona un peligro" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {hazards.map((hazard) => (
-                      <SelectItem key={hazard.id} value={hazard.id.toString()}>
-                        {hazard.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Select onValueChange={(value) => setValue("hazardId", Number(value))}>
+  <SelectTrigger>
+    <SelectValue placeholder="Selecciona un peligro" />
+  </SelectTrigger>
+  <SelectContent>
+    {hazards.filter(hasId).map((hazard) => (
+      <SelectItem key={hazard.id} value={String(hazard.id)}>
+        {hazard.name}
+      </SelectItem>
+    ))}
+  </SelectContent>
+</Select>
+
                 {errors.hazardId && (
                   <p className="text-red-600 text-sm mt-1">{errors.hazardId.message}</p>
                 )}
