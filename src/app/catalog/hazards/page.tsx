@@ -20,6 +20,11 @@ import {
   ArrowLeft
 } from 'lucide-react'
 
+// type guard: asegura que hazard tiene id numérico
+function hasId(h: Hazard): h is Hazard & { id: number } {
+  return typeof (h as any).id === "number";
+}
+
 const hazardCategories = [
   'Físico',
   'Químico',
@@ -61,11 +66,12 @@ export default function HazardsPage() {
 
   const onSubmit = async (data: Hazard) => {
     try {
-      if (editingHazard) {
-        await updateHazard.mutateAsync({ id: editingHazard.id, data })
+      if (editingHazard && typeof editingHazard.id === "number") {
+        await updateHazard.mutateAsync({ id: editingHazard.id, data });
       } else {
-        await createHazard.mutateAsync(data)
+        await createHazard.mutateAsync(data);
       }
+      
       reset()
       setIsFormOpen(false)
       setEditingHazard(null)
@@ -74,11 +80,13 @@ export default function HazardsPage() {
     }
   }
 
-  const handleEdit = (hazard: Hazard & { id: number }) => {
-    setEditingHazard(hazard)
-    reset(hazard)
-    setIsFormOpen(true)
-  }
+  const handleEdit = (hazard: Hazard) => {
+    if (!hasId(hazard)) return;   // si hazard no tiene id, no hace nada
+    setEditingHazard(hazard);
+    reset(hazard);
+    setIsFormOpen(true);
+  };
+  
 
   const handleDelete = async (id: number) => {
     if (confirm('¿Estás seguro de que quieres eliminar este peligro?')) {
@@ -258,70 +266,72 @@ export default function HazardsPage() {
             </Card>
           )}
 
-          {/* Lista de peligros */}
-          <div className="space-y-4">
-            {filteredHazards.length === 0 ? (
-              <Card>
-                <CardContent className="text-center py-12">
-                  <AlertTriangle className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                  <h3 className="text-lg font-medium text-gray-900 mb-2">
-                    No se encontraron peligros
-                  </h3>
-                  <p className="text-gray-500 mb-4">
-                    {searchTerm || categoryFilter !== 'all' 
-                      ? 'Intenta ajustar los filtros de búsqueda'
-                      : 'Aún no hay peligros registrados'
-                    }
-                  </p>
-                  {!searchTerm && categoryFilter === 'all' && (
-                    <Button onClick={() => setIsFormOpen(true)}>
-                      <Plus className="h-4 w-4 mr-2" />
-                      Crear primer peligro
-                    </Button>
-                  )}
-                </CardContent>
-              </Card>
-            ) : (
-              filteredHazards.map((hazard) => (
-                <Card key={hazard.id} className="hover:shadow-md transition-shadow">
-                  <CardContent className="p-6">
-                    <div className="flex items-center justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center space-x-3 mb-2">
-                          <h3 className="text-lg font-semibold text-gray-900">
-                            {hazard.name}
-                          </h3>
-                          <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs font-medium rounded-full">
-                            {hazard.category}
-                          </span>
-                        </div>
-                        {hazard.description && (
-                          <p className="text-gray-600 text-sm">{hazard.description}</p>
-                        )}
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <Button 
-                          variant="outline" 
-                          size="sm"
-                          onClick={() => handleEdit(hazard)}
-                        >
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        <Button 
-                          variant="outline" 
-                          size="sm"
-                          onClick={() => handleDelete(hazard.id)}
-                          disabled={deleteHazard.isPending}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))
-            )}
+       {/* Lista de peligros */}
+<div className="space-y-4">
+  {filteredHazards.length === 0 ? (
+    <Card>
+      <CardContent className="text-center py-12">
+        <AlertTriangle className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+        <h3 className="text-lg font-medium text-gray-900 mb-2">
+          No se encontraron peligros
+        </h3>
+        <p className="text-gray-500 mb-4">
+          {searchTerm || categoryFilter !== 'all'
+            ? 'Intenta ajustar los filtros de búsqueda'
+            : 'Aún no hay peligros registrados'}
+        </p>
+        {!searchTerm && categoryFilter === 'all' && (
+          <Button onClick={() => setIsFormOpen(true)}>
+            <Plus className="h-4 w-4 mr-2" />
+            Crear primer peligro
+          </Button>
+        )}
+      </CardContent>
+    </Card>
+  ) : (
+    filteredHazards.map((hazard, i) => (
+      <Card
+        key={hasId(hazard) ? hazard.id : i}
+        className="hover:shadow-md transition-shadow"
+      >
+        <CardContent className="p-6">
+          <div className="flex items-center justify-between">
+            <div className="flex-1">
+              <div className="flex items-center space-x-3 mb-2">
+                <h3 className="text-lg font-semibold text-gray-900">
+                  {hazard.name}
+                </h3>
+                <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs font-medium rounded-full">
+                  {hazard.category}
+                </span>
+              </div>
+              {hazard.description && (
+                <p className="text-gray-600 text-sm">{hazard.description}</p>
+              )}
+            </div>
+            <div className="flex items-center space-x-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleEdit(hazard)}
+              >
+                <Edit className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => hasId(hazard) && handleDelete(hazard.id)}
+                disabled={deleteHazard.isPending}
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
+        </CardContent>
+      </Card>
+    ))
+  )}
+</div>
         </div>
       </main>
     </div>
