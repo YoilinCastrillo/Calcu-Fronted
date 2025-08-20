@@ -2,6 +2,7 @@ import { z } from 'zod'
 
 // Esquemas para catálogos
 export const hazardSchema = z.object({
+  id: z.number().optional(), 
   name: z.string().min(1, 'El nombre del peligro es requerido'),
   description: z.string().optional(),
   category: z.string().min(1, 'La categoría es requerida'),
@@ -63,6 +64,7 @@ export type Responsible = z.infer<typeof responsibleSchema>
 export type RiskAssessment = z.infer<typeof riskAssessmentSchema>
 export type LoginData = z.infer<typeof loginSchema>
 export type RegisterData = z.infer<typeof registerSchema>
+
 
 // Tipos adicionales para la aplicación
 export interface RiskMatrix {
