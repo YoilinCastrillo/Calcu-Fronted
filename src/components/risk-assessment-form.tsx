@@ -12,6 +12,11 @@ import { riskAssessmentSchema, type RiskAssessment } from '@/lib/schemas'
 import { calculateInitialRisk, calculateResidualRisk, generateRecommendations } from '@/lib/risk-calculator'
 import { useHazards, useTasks, useControls, useResponsibles, useCreateRiskAssessment } from '@/hooks/use-api'
 import { AlertTriangle, CheckCircle, Info } from 'lucide-react'
+import type { Control } from "@/lib/schemas";
+
+function hasControlId(c: Control): c is Control & { id: number } {
+  return typeof (c as any).id === "number";
+}
 
 interface RiskAssessmentFormProps {
   onSuccess?: () => void
@@ -68,9 +73,9 @@ export function RiskAssessmentForm({ onSuccess }: RiskAssessmentFormProps) {
       return
     }
 
-    const selectedControls = controls.filter(control => 
-      watchedControlIds.includes(control.id)
-    )
+    const selectedControls = controls.filter(
+      (control) => hasControlId(control) && watchedControlIds.includes(control.id)
+    );
     
     const totalEffectiveness = selectedControls.reduce((sum, control) => 
       sum + (control.effectiveness || 1), 0
