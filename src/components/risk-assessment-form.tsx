@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -12,15 +12,14 @@ import { riskAssessmentSchema, type RiskAssessment } from '@/lib/schemas'
 import { calculateInitialRisk, calculateResidualRisk, generateRecommendations } from '@/lib/risk-calculator'
 import { useHazards, useTasks, useControls, useResponsibles, useCreateRiskAssessment } from '@/hooks/use-api'
 import { AlertTriangle, CheckCircle, Info } from 'lucide-react'
-import type { Control } from "@/lib/schemas";
+import type { Hazard, Control } from '@/lib/schemas'
 
-function hasControlId(c: Control): c is Control & { id: number } {
-  return typeof (c as any).id === "number";
+// === Type guards ===
+function hasHazardId(h: Hazard): h is Hazard & { id: number } {
+  return typeof (h as any).id === 'number'
 }
-import type { Hazard } from "@/lib/schemas";
-
-function hasId(h: Hazard): h is Hazard & { id: number } {
-  return typeof (h as any).id === "number";
+function hasControlId(c: Control): c is Control & { id: number } {
+  return typeof (c as any).id === 'number'
 }
 
 interface RiskAssessmentFormProps {
@@ -55,53 +54,55 @@ export function RiskAssessmentForm({ onSuccess }: RiskAssessmentFormProps) {
     },
   })
 
-  const watchedHazardId = watch('hazardId')
-  const watchedTaskId = watch('taskId')
-  const watchedControlIds = watch('controlIds')
+  const watchedControlIds = watch('controlIds') ?? []
 
-  // Calcular riesgo cuando cambian probabilidad o severidad
+  // Matriz: calcular riesgo inicial
   const handleMatrixSelect = (probability: number, severity: number) => {
     setSelectedProbability(probability)
     setSelectedSeverity(severity)
     setValue('probability', probability)
     setValue('severity', severity)
 
-    const riskMatrix = calculateInitialRisk(probability, severity)
-    setInitialRiskScore(riskMatrix.score)
-    setRecommendations(generateRecommendations(riskMatrix.score))
+    const { score } = calculateInitialRisk(probability, severity)
+    setInitialRiskScore(score)
+    setRecommendations(generateRecommendations(score))
   }
 
-  // Calcular riesgo residual cuando cambian los controles
-  const calculateResidual = () => {
-    if (!initialRiskScore || !watchedControlIds?.length) {
+  // Calcular riesgo residual cuando cambian controles o el riesgo inicial
+  useEffect(() => {
+    if (initialRiskScore === undefined) {
       setResidualRiskScore(undefined)
       return
     }
 
-    const selectedControls = controls.filter(
-      (control) => hasControlId(control) && watchedControlIds.includes(control.id)
-    );
-    
-    const totalEffectiveness = selectedControls.reduce((sum, control) => 
-      sum + (control.effectiveness || 1), 0
-    ) / selectedControls.length
+    // controlIds desde RHF vienen como string[], conviértelos a number[]
+    const selectedIds = (watchedControlIds as (string | number)[]).map((v) => Number(v))
 
-    const residual = calculateResidualRisk(initialRiskScore, totalEffectiveness)
-    setResidualRiskScore(residual)
-  }
+    const selectedControls = controls
+      .filter(hasControlId)
+      .filter((c) => selectedIds.includes(c.id))
 
-  // Recalcular riesgo residual cuando cambian los controles
-  useState(() => {
-    calculateResidual()
-  })
+    if (selectedControls.length === 0) {
+      setResidualRiskScore(undefined)
+      return
+    }
+
+    const avgEffectiveness =
+      selectedControls.reduce((sum, c) => sum + (c.effectiveness ?? 1), 0) /
+      selectedControls.length
+
+    setResidualRiskScore(calculateResidualRisk(initialRiskScore, avgEffectiveness))
+  }, [initialRiskScore, watchedControlIds, controls])
 
   const onSubmit = async (data: RiskAssessment) => {
     try {
-      await createAssessment.mutateAsync({
+      // Normaliza controlIds a number[] porque react-hook-form los devuelve como string[]
+      const payload: RiskAssessment = {
         ...data,
-        initialRisk: initialRiskScore!,
-        residualRisk: residualRiskScore,
-      })
+        controlIds: (data.controlIds ?? []).map(Number),
+      }
+  
+      await createAssessment.mutateAsync(payload)  // 👈 ya sin initial/residual
       onSuccess?.()
     } catch (error) {
       console.error('Error al crear la evaluación:', error)
@@ -130,22 +131,19 @@ export function RiskAssessmentForm({ onSuccess }: RiskAssessmentFormProps) {
             <CardContent className="space-y-4">
               {/* Peligro */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Peligro *
-                </label>
-                <Select onValueChange={(value) => setValue("hazardId", Number(value))}>
-  <SelectTrigger>
-    <SelectValue placeholder="Selecciona un peligro" />
-  </SelectTrigger>
-  <SelectContent>
-    {hazards.filter(hasId).map((hazard) => (
-      <SelectItem key={hazard.id} value={String(hazard.id)}>
-        {hazard.name}
-      </SelectItem>
-    ))}
-  </SelectContent>
-</Select>
-
+                <label className="block text-sm font-medium text-gray-700 mb-2">Peligro *</label>
+                <Select onValueChange={(value) => setValue('hazardId', Number(value))}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecciona un peligro" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {hazards.filter(hasHazardId).map((hazard) => (
+                      <SelectItem key={hazard.id} value={String(hazard.id)}>
+                        {hazard.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 {errors.hazardId && (
                   <p className="text-red-600 text-sm mt-1">{errors.hazardId.message}</p>
                 )}
@@ -153,16 +151,14 @@ export function RiskAssessmentForm({ onSuccess }: RiskAssessmentFormProps) {
 
               {/* Tarea */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Tarea *
-                </label>
-                <Select onValueChange={(value) => setValue('taskId', parseInt(value))}>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Tarea *</label>
+                <Select onValueChange={(value) => setValue('taskId', Number(value))}>
                   <SelectTrigger>
                     <SelectValue placeholder="Selecciona una tarea" />
                   </SelectTrigger>
                   <SelectContent>
-                    {tasks.map((task) => (
-                      <SelectItem key={task.id} value={task.id.toString()}>
+                    {tasks?.map((task: any) => (
+                      <SelectItem key={task.id} value={String(task.id)}>
                         {task.name}
                       </SelectItem>
                     ))}
@@ -175,17 +171,15 @@ export function RiskAssessmentForm({ onSuccess }: RiskAssessmentFormProps) {
 
               {/* Responsable */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Responsable *
-                </label>
-                <Select onValueChange={(value) => setValue('responsibleId', parseInt(value))}>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Responsable *</label>
+                <Select onValueChange={(value) => setValue('responsibleId', Number(value))}>
                   <SelectTrigger>
                     <SelectValue placeholder="Selecciona un responsable" />
                   </SelectTrigger>
                   <SelectContent>
-                    {responsibles.map((responsible) => (
-                      <SelectItem key={responsible.id} value={responsible.id.toString()}>
-                        {responsible.name} - {responsible.department}
+                    {responsibles?.map((r: any) => (
+                      <SelectItem key={r.id} value={String(r.id)}>
+                        {r.name} - {r.department}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -201,17 +195,15 @@ export function RiskAssessmentForm({ onSuccess }: RiskAssessmentFormProps) {
           <Card>
             <CardHeader>
               <CardTitle>Controles Existentes</CardTitle>
-              <CardDescription>
-                Selecciona los controles que ya están implementados
-              </CardDescription>
+              <CardDescription>Selecciona los controles que ya están implementados</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">
-                {controls.map((control) => (
+                {controls.filter(hasControlId).map((control) => (
                   <label key={control.id} className="flex items-center space-x-3">
                     <input
                       type="checkbox"
-                      value={control.id}
+                      value={String(control.id)}
                       {...register('controlIds')}
                       className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                     />
@@ -219,7 +211,7 @@ export function RiskAssessmentForm({ onSuccess }: RiskAssessmentFormProps) {
                       <div className="font-medium text-sm">{control.name}</div>
                       <div className="text-xs text-gray-500">{control.description}</div>
                       <div className="text-xs text-gray-400">
-                        Efectividad: {Math.round((control.effectiveness || 1) * 100)}%
+                        Efectividad: {Math.round((control.effectiveness ?? 1) * 100)}%
                       </div>
                     </div>
                   </label>
@@ -244,24 +236,18 @@ export function RiskAssessmentForm({ onSuccess }: RiskAssessmentFormProps) {
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Fecha de Implementación
                 </label>
-                <Input
-                  type="date"
-                  {...register('implementationDate')}
-                  className="w-full"
-                />
+                <Input type="date" {...register('implementationDate')} className="w-full" />
               </div>
             </CardContent>
           </Card>
         </div>
 
-        {/* Matriz de riesgo y resultados */}
+        {/* Matriz y resultados */}
         <div className="space-y-6">
           <Card>
             <CardHeader>
               <CardTitle>Evaluación de Riesgo</CardTitle>
-              <CardDescription>
-                Selecciona la probabilidad y severidad en la matriz
-              </CardDescription>
+              <CardDescription>Selecciona la probabilidad y severidad en la matriz</CardDescription>
             </CardHeader>
             <CardContent>
               <RiskMatrix
@@ -272,17 +258,13 @@ export function RiskAssessmentForm({ onSuccess }: RiskAssessmentFormProps) {
             </CardContent>
           </Card>
 
-          {/* Resultados */}
           {(initialRiskScore !== undefined || residualRiskScore !== undefined) && (
             <Card>
               <CardHeader>
                 <CardTitle>Resultados del Análisis</CardTitle>
-                <CardDescription>
-                  Niveles de riesgo calculados automáticamente
-                </CardDescription>
+                <CardDescription>Niveles de riesgo calculados automáticamente</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                {/* Riesgo inicial */}
                 {initialRiskScore !== undefined && (
                   <div className={`p-4 rounded-lg border ${getRiskColorClass(initialRiskScore)}`}>
                     <div className="flex items-center space-x-2 mb-2">
@@ -291,12 +273,18 @@ export function RiskAssessmentForm({ onSuccess }: RiskAssessmentFormProps) {
                     </div>
                     <div className="text-2xl font-bold">{initialRiskScore}</div>
                     <p className="text-sm opacity-80">
-                      Nivel: {initialRiskScore <= 5 ? 'Bajo' : initialRiskScore <= 10 ? 'Medio' : initialRiskScore <= 15 ? 'Alto' : 'Crítico'}
+                      Nivel:{' '}
+                      {initialRiskScore <= 5
+                        ? 'Bajo'
+                        : initialRiskScore <= 10
+                        ? 'Medio'
+                        : initialRiskScore <= 15
+                        ? 'Alto'
+                        : 'Crítico'}
                     </p>
                   </div>
                 )}
 
-                {/* Riesgo residual */}
                 {residualRiskScore !== undefined && (
                   <div className={`p-4 rounded-lg border ${getRiskColorClass(residualRiskScore)}`}>
                     <div className="flex items-center space-x-2 mb-2">
@@ -305,12 +293,18 @@ export function RiskAssessmentForm({ onSuccess }: RiskAssessmentFormProps) {
                     </div>
                     <div className="text-2xl font-bold">{residualRiskScore}</div>
                     <p className="text-sm opacity-80">
-                      Nivel: {residualRiskScore <= 5 ? 'Bajo' : residualRiskScore <= 10 ? 'Medio' : residualRiskScore <= 15 ? 'Alto' : 'Crítico'}
+                      Nivel:{' '}
+                      {residualRiskScore <= 5
+                        ? 'Bajo'
+                        : residualRiskScore <= 10
+                        ? 'Medio'
+                        : residualRiskScore <= 15
+                        ? 'Alto'
+                        : 'Crítico'}
                     </p>
                   </div>
                 )}
 
-                {/* Recomendaciones */}
                 {recommendations.length > 0 && (
                   <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
                     <div className="flex items-center space-x-2 mb-3">
@@ -318,10 +312,10 @@ export function RiskAssessmentForm({ onSuccess }: RiskAssessmentFormProps) {
                       <h4 className="font-semibold text-blue-900">Recomendaciones</h4>
                     </div>
                     <ul className="space-y-1">
-                      {recommendations.map((recommendation, index) => (
-                        <li key={index} className="text-sm text-blue-800 flex items-start space-x-2">
+                      {recommendations.map((r, i) => (
+                        <li key={i} className="text-sm text-blue-800 flex items-start space-x-2">
                           <span className="text-blue-600 mt-1">•</span>
-                          <span>{recommendation}</span>
+                          <span>{r}</span>
                         </li>
                       ))}
                     </ul>
@@ -338,11 +332,7 @@ export function RiskAssessmentForm({ onSuccess }: RiskAssessmentFormProps) {
         <Button type="button" variant="outline" onClick={() => window.history.back()}>
           Cancelar
         </Button>
-        <Button 
-          type="submit" 
-          disabled={isSubmitting || !initialRiskScore}
-          className="min-w-[120px]"
-        >
+        <Button type="submit" disabled={isSubmitting || !initialRiskScore} className="min-w-[120px]">
           {isSubmitting ? 'Guardando...' : 'Guardar Evaluación'}
         </Button>
       </div>
